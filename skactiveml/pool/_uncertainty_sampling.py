@@ -187,8 +187,26 @@ class UncertaintySampling(SingleAnnotatorPoolQueryStrategy):
             else:
                 clf = clone(clf).fit(X, y)
 
-        # Predict class-membership probabilities.
-        probas = clf.predict_proba(X_cand)
+        # Predict class-membership probabilities or decision scores.
+        if hasattr(clf, "predict_proba"):
+            probas = clf.predict_proba(X_cand)
+        elif hasattr(clf, "decision_function"):
+            # Use decision_function to approximate probabilities.
+            decision_scores = clf.decision_function(X_cand)
+            if decision_scores.ndim == 1:
+                # Binary classification: Convert to probabilities using sigmoid.
+                probas = np.vstack([
+                    1 / (1 + np.exp(-decision_scores)),
+                    1 - (1 / (1 + np.exp(-decision_scores)))
+                ]).T
+            else:
+                # Multiclass: Apply softmax to decision scores.
+                exp_scores = np.exp(decision_scores)
+                probas = exp_scores / np.sum(exp_scores, axis=1, keepdims=True)
+        else:
+            raise AttributeError(
+                "The classifier must implement either `predict_proba` or `decision_function`."
+            )
 
         # Choose the method and calculate corresponding utilities.
         with np.errstate(divide="ignore"):
